@@ -9,6 +9,8 @@ If you want to customize or change the way the resources are deployed, read on.
 ## Deploying the resources to a different AWS Region from the one in the blog
 To deploy the template and code without changes to a different AWS Region than the one identified in the blog:
 
+1. Ensure that you have [enabled AWS Security Hub](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-enable.html#securityhub-enable-console) in the AWS Region where you want to deploy the resources.
+
 1. Clone this repository to your desktop using git.
     ```
     git clone https://github.com/aws-samples/aws-private-decoy-resources.git
@@ -24,7 +26,9 @@ To change the properties of the decoy resources created in the template or to ch
 1. Installing and configuring the CDK: follow the instructions in [CDK Getting Started](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html) to get started. Specifically:
 - Ensure that the [pre-requisites](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_prerequisites) are met.
 - [Install the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install).
-- [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and AWS Region where you want to deploy the stack.
+- [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and AWS Region where you want to deploy the resources.
+
+1. Ensure that you have [enabled AWS Security Hub](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-enable.html#securityhub-enable-console) in the AWS Region where you want to deploy the resources.
 
 
 2. Clone this repository to your desktop using git.
