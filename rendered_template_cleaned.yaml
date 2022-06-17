@@ -1,0 +1,1147 @@
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: aws:kms
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataBucket/Resource
+  DataSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      GenerateSecretString:
+        GenerateStringKey: password
+        SecretStringTemplate: '{"username": "user"}'
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataSecret/Resource
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataTable/Resource
+  WriteDataFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - Fn::Join:
+        - ''
+        - - 'arn:'
+          - Ref: AWS::Partition
+          - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/WriteDataFunctionRole/Resource
+  WriteDataFunctionRoleDefaultPolicy8547BA9E:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+        - Action:
+          - s3:PutObject
+          - s3:DeleteObject
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - DataBucket
+                - Arn
+              - /data-object
+        - Action:
+          - ssm:PutParameter
+          - ssm:DeleteParameter
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:'
+              - Ref: AWS::Partition
+              - ':ssm:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - :parameter/data-parameter
+        - Action:
+          - dynamodb:PutItem
+          - dynamodb:DeleteItem
+          Effect: Allow
+          Resource:
+            Fn::GetAtt:
+            - DataTable
+            - Arn
+        Version: '2012-10-17'
+      PolicyName: WriteDataFunctionRoleDefaultPolicy8547BA9E
+      Roles:
+      - Ref: WriteDataFunctionRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/WriteDataFunctionRole/DefaultPolicy/Resource
+  WriteDataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |2+
+
+          import json
+          import boto3
+          import uuid
+          import cfnresponse
+
+          ssm = boto3.client('ssm')
+          s3 = boto3.client('s3')
+          ddb = boto3.client('dynamodb')
+
+          def on_event(event, context):
+            print(json.dumps(event))
+            request_type = event['RequestType']
+            try:
+                if request_type == 'Create': return on_create(event, context)
+                if request_type == 'Update': return on_update(event, context)
+                if request_type == 'Delete': return on_delete(event, context)
+            except Exception as e:
+                print(e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+                raise e
+
+            raise Exception("Invalid request type: %s" % request_type)
+
+          def on_create(event, context):
+            props = event["ResourceProperties"]
+            print("create new resource with props %s" % props)
+
+            ssm.put_parameter(
+              Name=props['param_name'],
+              Value=uuid.uuid4().hex,
+              Type='SecureString',
+              Overwrite=True
+            )
+
+            s3.put_object(
+              Bucket=props['s3_bucket_name'],
+              Key=props['s3_object_key'],
+              Body=bytes(uuid.uuid4().hex, 'utf-8')
+            )
+
+            ddb.put_item(
+              TableName=props['ddb_table_name'],
+              Item={
+                  "id": {
+                      "S": props['ddb_item_key']
+                  },
+                  "value": {
+                      "S": uuid.uuid4().hex
+                  }
+              }
+            )
+
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+              "s3_object_key" : props['s3_object_key']
+            })
+            return 'Created'
+
+          def on_update(event, context):
+            print("update resource - doing nothing")
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return 'Updated'
+
+          def on_delete(event, context):
+            props = event["ResourceProperties"]
+            print("deleting resources with props %s" % props)
+
+            try:
+                ssm.delete_parameter(
+                  Name=props['param_name']
+                )
+            except Exception as e:
+                print(e)
+
+            try:
+                s3.delete_object(
+                  Bucket=props['s3_bucket_name'],
+                  Key=props['s3_object_key']
+                )
+            except Exception as e:
+                print(e)
+
+
+            try:
+                ddb.delete_item(
+                  TableName=props['ddb_table_name'],
+                  Key={
+                      "id": {
+                          "S": props['ddb_item_key']
+                      }
+                  }
+                )
+            except Exception as e:
+                print(e)
+
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return 'Deleted'
+
+      Role:
+        Fn::GetAtt:
+        - WriteDataFunctionRole
+        - Arn
+      Handler: index.on_event
+      Runtime: python3.9
+      Timeout: 300
+    DependsOn:
+    - WriteDataFunctionRoleDefaultPolicy8547BA9E
+    - WriteDataFunctionRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/WriteDataFunction/Resource
+  WriteData:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - WriteDataFunction
+        - Arn
+      param_name: data-parameter
+      s3_bucket_name:
+        Ref: DataBucket
+      s3_object_key: data-object
+      ddb_table_name:
+        Ref: DataTable
+      ddb_item_key: data-item
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: ResourcesStack/WriteData/Default
+  DataRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            AWS:
+              Fn::Join:
+              - ''
+              - - 'arn:'
+                - Ref: AWS::Partition
+                - ':iam::'
+                - Ref: AWS::AccountId
+                - :root
+        Version: '2012-10-17'
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataRole/Resource
+  DataRoleDefaultPolicy0486B57A:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+        - Action:
+          - secretsmanager:GetSecretValue
+          - secretsmanager:DescribeSecret
+          Effect: Allow
+          Resource:
+            Ref: DataSecret
+        - Action:
+          - s3:GetObject*
+          - s3:GetBucket*
+          - s3:List*
+          Effect: Allow
+          Resource:
+          - Fn::GetAtt:
+            - DataBucket
+            - Arn
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - DataBucket
+                - Arn
+              - /*
+        - Action:
+          - dynamodb:BatchGetItem
+          - dynamodb:GetRecords
+          - dynamodb:GetShardIterator
+          - dynamodb:Query
+          - dynamodb:GetItem
+          - dynamodb:Scan
+          - dynamodb:ConditionCheckItem
+          - dynamodb:DescribeTable
+          Effect: Allow
+          Resource:
+          - Fn::GetAtt:
+            - DataTable
+            - Arn
+          - Ref: AWS::NoValue
+        - Action:
+          - s3:GetParameter
+          - s3:GetParameters
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:'
+              - Ref: AWS::Partition
+              - ':ssm:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - :parameter/data-parameter
+        Version: '2012-10-17'
+      PolicyName: DataRoleDefaultPolicy0486B57A
+      Roles:
+      - Ref: DataRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataRole/DefaultPolicy/Resource
+  DataEventsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: aws:kms
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataEventsBucket/Resource
+  DataEventsBucketPolicy23490203:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: DataEventsBucket
+      PolicyDocument:
+        Statement:
+        - Action: s3:GetBucketAcl
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Resource:
+            Fn::GetAtt:
+            - DataEventsBucket
+            - Arn
+        - Action: s3:PutObject
+          Condition:
+            StringEquals:
+              aws:SourceArn:
+                Fn::Join:
+                - ''
+                - - 'arn:'
+                  - Ref: AWS::Partition
+                  - ':cloudtrail:'
+                  - Ref: AWS::Region
+                  - ':'
+                  - Ref: AWS::AccountId
+                  - :trail/data-events-trail
+              s3:x-amz-acl: bucket-owner-full-control
+          Effect: Allow
+          Principal:
+            Service: cloudtrail.amazonaws.com
+          Resource:
+            Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - DataEventsBucket
+                - Arn
+              - /AWSLogs/
+              - Ref: AWS::AccountId
+              - /*
+        Version: '2012-10-17'
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataEventsBucket/Policy/Resource
+  DataEventsTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      IsLogging: true
+      S3BucketName:
+        Ref: DataEventsBucket
+      EventSelectors:
+      - DataResources:
+        - Type: AWS::S3::Object
+          Values:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - DataBucket
+                - Arn
+              - /
+        - Type: AWS::DynamoDB::Table
+          Values:
+          - Fn::GetAtt:
+            - DataTable
+            - Arn
+        IncludeManagementEvents: false
+      IncludeGlobalServiceEvents: false
+      TrailName: data-events-trail
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataEventsTrail
+  DataFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - Fn::Join:
+        - ''
+        - - 'arn:'
+          - Ref: AWS::Partition
+          - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataFunctionRole/Resource
+  DataFunctionRoleDefaultPolicyF2A93448:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+        - Action: securityhub:BatchImportFindings
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:'
+              - Ref: AWS::Partition
+              - ':securityhub:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - :product/
+              - Ref: AWS::AccountId
+              - /default
+        Version: '2012-10-17'
+      PolicyName: DataFunctionRoleDefaultPolicyF2A93448
+      Roles:
+      - Ref: DataFunctionRole
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataFunctionRole/DefaultPolicy/Resource
+  DataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role:
+        Fn::GetAtt:
+        - DataFunctionRole
+        - Arn
+      Environment:
+        Variables:
+          MATCH_ROLE_ARN:
+            Fn::GetAtt:
+            - DataRole
+            - Arn
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import re
+          import traceback
+          import os
+
+          FINDING_SEVERITY_LABEL='HIGH'
+          FINDING_TYPE="Unusual Behaviors"
+          COMPANY_NAME="Custom"
+          PRODUCT_NAME="DecoyDetector"
+
+          ACCESS_DENIED_MESSAGE_REGEX = re.compile('User: (.*) is not authorized to perform: sts:AssumeRole on resource: (.*)')
+          IPV4_REGEX = re.compile('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+
+          MATCH_ROLE_ARN = os.environ.get('MATCH_ROLE_ARN')
+
+          USER_IDENTITY_TO_ASFF = {
+              'accessKeyId': 'AccessKeyId',
+              'accountId': 'AccountId',
+              'principalId': 'PrincipalId',
+              'type': 'PrincipalType',
+              'userName': 'PrincipalName'
+          }
+
+          ATTRIBUTES_TO_ASFF = {
+              'creationDate': 'CreationDate',
+              'mfaAuthenticated': 'MfaAuthenticated'
+          }
+
+          SESSION_ISSUER_TO_ASFF = {
+              'accountId': 'AccountId',
+              'arn': 'Arn',
+              'principalId': 'PrincipalId',
+              'type': 'Type',
+              'userName': 'UserName'
+          }
+
+          session = boto3.session.Session()
+
+          sts = session.client('sts')
+          caller_id = sts.get_caller_identity()
+          my_arn = caller_id['Arn']
+          my_account = caller_id['Account']
+          my_region = session.region_name
+          my_partition = session.get_partition_for_region(session.region_name)
+
+          sh = session.client('securityhub')
+
+          def get_resource_arn(resource_list, type):
+              for r in resource_list:
+                  if(r['type'] == type):
+                      if('ARN' in r):
+                          return r['ARN']
+                      elif('ARNPrefix' in r):
+                          return r['ARNPrefix']
+              return None
+
+          def map_keys(source, mapping):
+              dest = {}
+              for source_key, source_value in source.items():
+                  if(source_key in mapping):
+                      dest_key = mapping[source_key]
+                      dest[dest_key] = source_value
+              return dest
+
+          def add_user_identity(resources, event, detail):
+              user_identity = detail['userIdentity']
+
+              # append information about the Access Key:
+              access_key_resource = {
+                  'Id': user_identity['accessKeyId'],
+                  'Type': 'AwsIamAccessKey',
+                  'ResourceRole': 'Actor',
+                  'Partition': my_partition,
+                  'Region': event['region'],
+                  'Details': {}
+              }
+
+              aws_iam_access_key = map_keys(user_identity, USER_IDENTITY_TO_ASFF)
+
+              if('sessionContext' in user_identity):
+                  session_context = {}
+                  if('attributes' in user_identity['sessionContext']):
+                      attr = map_keys(user_identity['sessionContext']['attributes'], ATTRIBUTES_TO_ASFF)
+                      if(len(attr) != 0):
+                          # Change type of 'MfaAuthenticated' to boolean
+                          if('MfaAuthenticated' in attr):
+                              if(attr['MfaAuthenticated'] == 'true'):
+                                  attr['MfaAuthenticated'] = True
+                              else:
+                                  attr['MfaAuthenticated'] = False
+
+                          session_context['Attributes'] = attr
+
+                  if('sessionIssuer' in user_identity['sessionContext']):
+                      si = map_keys(user_identity['sessionContext']['sessionIssuer'], SESSION_ISSUER_TO_ASFF)
+                      if(len(si) != 0):
+                          session_context['SessionIssuer'] = si
+
+                  if(len(session_context) != 0):
+                      aws_iam_access_key['SessionContext'] = session_context
+
+              if(len(aws_iam_access_key) != 0):
+                  access_key_resource['Details']['AwsIamAccessKey'] = aws_iam_access_key
+
+              resources.append(access_key_resource)
+
+              # Now add either an AwsIamUser or AwsIamRole depending on the type of identity
+              type = user_identity['type']
+              if(type == 'AssumedRole'):
+                  role = {
+                      'Id': user_identity['sessionContext']['sessionIssuer']['arn'],
+                      'Type': 'AwsIamRole',
+                      'ResourceRole': 'Actor',
+                      'Partition': my_partition,
+                      'Region': event['region'],
+                  }
+                  resources.append(role)
+              elif(type == 'IAMUser'):
+                  user = {
+                      'Id': user_identity['arn'],
+                      'Type': 'AwsIamUser',
+                      'ResourceRole': 'Actor',
+                      'Partition': my_partition,
+                      'Region': event['region'],
+                  }
+                  resources.append(user)
+
+
+          def add_s3_fields(finding, event, detail):
+              add_fields = {
+                  "Title": f"Suspicious activity detected accessing private decoy S3 bucket {detail['requestParameters']['bucketName']}",
+                  "Description": f"Private decoy S3 bucket {detail['requestParameters']['bucketName']} was accessed by {detail['userIdentity']['arn']}. This S3 bucket has been provisioned to monitor and generate security events when accessed and can be an indicator of unintended or unauthorized access to your AWS Account.",
+                  'Resources': [
+                      {
+                          'Id': get_resource_arn(detail['resources'], 'AWS::S3::Bucket'),
+                          'Type': 'AwsS3Bucket',
+                          'ResourceRole': 'Target',
+                          'Partition': my_partition,
+                          'Region': event['region']
+                      },
+                      {
+                          'Id': get_resource_arn(detail['resources'], 'AWS::S3::Object'),
+                          'Type': 'AwsS3Object',
+                          'ResourceRole': 'Target',
+                          'Partition': my_partition,
+                          'Region': event['region']
+                      }
+                  ]
+              }
+              finding.update(add_fields)
+
+          def add_dynamodb_fields(finding, event, detail):
+              table_arn = get_resource_arn(detail['resources'], 'AWS::DynamoDB::Table')
+              add_fields = {
+                  "Title": f"Suspicious activity detected accessing private decoy DynamoDB table {table_arn}",
+                  "Description": f"Private decoy DynamoDB table {table_arn} was accessed by {detail['userIdentity']['arn']}. This DynamoDB table has been provisioned to monitor and generate security events when accessed and can be an indicator of unintended or unauthorized access to your AWS Account.",
+                  'Resources': [
+                      {
+                          'Id': table_arn,
+                          'Type': 'AwsDynamoDbTable',
+                          'ResourceRole': 'Target',
+                          'Partition': my_partition,
+                          'Region': event['region']
+                      }
+                  ]
+              }
+              finding.update(add_fields)
+
+
+          def add_sts_fields(finding, event, detail):
+              if('errorCode' in detail and detail['errorCode'] == 'AccessDenied'):
+                  # Handle STS AccessDenied errors by parsing out IAM Role ARN from errorMessage
+                  error_message = detail['errorMessage']
+                  result = ACCESS_DENIED_MESSAGE_REGEX.fullmatch(error_message)
+                  if(result):
+                      principal_arn = result.group(1)
+                      target_role_arn = result.group(2)
+
+                      if(target_role_arn != MATCH_ROLE_ARN):
+                          raise Exception(f"STS AssumeRole AccessDenied: target role {target_role_arn} does not match {MATCH_ROLE_ARN}")
+                  else:
+                      raise Exception('STS AssumeRole AccessDenied: errorMessage did not match expected pattern')
+              else:
+                  principal_arn = detail['userIdentity']['arn']
+                  target_role_arn = detail['requestParameters']['roleArn']
+
+
+              add_fields = {
+                  "Title": f"Suspicious activity detected accessing private decoy IAM role {target_role_arn}",
+                  "Description": f"Private decoy IAM role {target_role_arn} was accessed by {principal_arn}. This IAM role has been provisioned to monitor and generate security events when accessed and can be an indicator of unintended or unauthorized access to your AWS Account.",
+                  'Resources': [
+                      {
+                          'Id': target_role_arn,
+                          'Type': 'AwsIamRole',
+                          'ResourceRole': 'Target',
+                          'Partition': my_partition,
+                          'Region': event['region']
+                      }
+                  ]
+              }
+              finding.update(add_fields)
+
+          def add_kms_fields(finding, event, detail):
+              if(detail['requestParameters'] == None):
+                  # this is most likely a KMS AccessDenied error, there's not much to add here
+                  raise Exception(f"Missing requestParameter details for KMS event")
+
+              enc_context = detail['requestParameters']['encryptionContext']
+              if('PARAMETER_ARN' in enc_context):
+                  # Decryption of SSM Parameter
+                  add_fields = {
+                      "GeneratorId": 'ssm.amazonaws.com',
+                      "Title": f"Suspicious activity detected accessing private decoy Systems Manager parameter {enc_context['PARAMETER_ARN']}",
+                      "Description": f"Private decoy Systems Manager parameter {enc_context['PARAMETER_ARN']} was accessed by {detail['userIdentity']['arn']}. This Systems Manager parameter has been provisioned to monitor and generate security events when accessed and can be an indicator of unintended or unauthorized access to your AWS Account.",
+                      'Resources': [
+                          {
+                              'Id': enc_context['PARAMETER_ARN'],
+                              'Type': 'Other',
+                              'ResourceRole': 'Target',
+                              'Partition': my_partition,
+                              'Region': event['region']
+                          }
+                      ]
+                  }
+
+              elif('SecretARN' in enc_context):
+                  # Decryption of Secret
+                  add_fields = {
+                      "GeneratorId": 'secretsmanager.amazonaws.com',
+                      "Title": f"Suspicious activity detected accessing private decoy secret {enc_context['SecretARN']}",
+                      "Description": f"Private decoy secret {enc_context['SecretARN']} was accessed by {detail['userIdentity']['arn']}. This secret has been provisioned to monitor and generate security events when accessed and can be an indicator of unintended or unauthorized access to your AWS Account.",
+                      'Resources': [
+                          {
+                              'Id': enc_context['SecretARN'],
+                              'Type': 'AwsSecretsManagerSecret',
+                              'ResourceRole': 'Target',
+                              'Partition': my_partition,
+                              'Region': event['region']
+                          }
+                      ]
+                  }
+              else:
+                  raise Exception(f"Unexpected encryption context: {enc_context}")
+
+              # add the KMS Key resource
+              key = {
+                  'Id': get_resource_arn(detail['resources'], 'AWS::KMS::Key'),
+                  'Type': 'AwsKmsKey',
+                  'ResourceRole': 'Target',
+                  'Partition': my_partition,
+                  'Region': event['region']
+              }
+              add_fields['Resources'].append(key)
+
+              finding.update(add_fields)
+
+
+          def map_finding(event):
+              detail = event['detail']
+
+              # Add common fields for all events
+              finding = {
+                  "SchemaVersion": "2018-10-08",
+                  "Id": detail['eventID'],
+                  "ProductArn": f"arn:aws:securityhub:{my_region}:{my_account}:product/{my_account}/default",
+                  "GeneratorId": detail['eventSource'],
+                  "AwsAccountId": event['account'],
+                  "CreatedAt": detail['eventTime'],
+                  "UpdatedAt": detail['eventTime'],
+                  "CompanyName": COMPANY_NAME,
+                  "ProductName": PRODUCT_NAME,
+                  "FindingProviderFields": {
+                      "Severity": {
+                          "Label": FINDING_SEVERITY_LABEL
+                      },
+                      "Types": [ FINDING_TYPE ]
+                  },
+                  "Action": {
+                      "ActionType": "AWS_API_CALL",
+                      "AwsApiCallAction": {
+                          "Api": detail['eventName'],
+                          "CallerType": 'remoteIp',
+                          "ServiceName": detail['eventSource'],
+                          "RemoteIpDetails": {
+                              "IpAddressV4": detail['sourceIPAddress']
+                          }
+                      }
+                  }
+              }
+
+              # remove IpAddressV4 if it is not an actual IPv4
+              match = IPV4_REGEX.fullmatch(finding['Action']['AwsApiCallAction']['RemoteIpDetails']['IpAddressV4'])
+              if(match == None):
+                  # Not an IPv4: this is likely an internal AWS API call: remove RemoteIpDetails
+                  del finding['Action']['AwsApiCallAction']['RemoteIpDetails']
+
+              # Add additional custom product-specific fields:
+              custom_fields = {}
+              if('errorCode' in detail):
+                  custom_fields = {
+                      'apiResult': 'ERROR',
+                      'errorCode': detail['errorCode'],
+                      'errorMessage': detail['errorMessage']
+                  }
+              else:
+                  custom_fields = {
+                      'apiResult': 'SUCCESS',
+                  }
+
+              # Add other fields from CloudTrail Event:
+              custom_fields['userAgent'] = detail['userAgent']
+              custom_fields['requestID'] = detail['requestID']
+
+              product_fields = {}
+              for k, v in custom_fields.items():
+                  pf_key = f"{COMPANY_NAME}/{PRODUCT_NAME}/{k}"
+                  product_fields[pf_key] = v
+
+              finding['ProductFields'] = product_fields
+              source = event['source']
+
+              if(source == 'aws.s3'):
+                  add_s3_fields(finding, event, detail)
+              elif(source == 'aws.sts'):
+                  add_sts_fields(finding, event, detail)
+              elif(source == 'aws.kms'):
+                  # KMS events are for SecretsManager and Systems Manager
+                  add_kms_fields(finding, event, detail)
+              elif(source == 'aws.dynamodb'):
+                  add_dynamodb_fields(finding, event, detail)
+              else:
+                  # An event source we don't recognize - this shoudn't happen so we log and ignore the event
+                  raise Exception(f"Unexpected event source {source}")
+
+              add_user_identity(finding['Resources'], event, detail)
+              return finding
+
+
+          def import_event(event):
+              try:
+                  finding = map_finding(event)
+              except Exception as e:
+                  print('Exception mapping event:', e, ': ignoring and not sending to Security Hub')
+                  traceback.print_exc()
+                  return
+
+              try:
+                  print('Mapped ASFF finding:')
+                  print(json.dumps(finding))
+                  result = sh.batch_import_findings(Findings=[finding])
+                  if(result['FailedCount'] != 0):
+                      failed = result['FailedFindings'][0]
+                      print(f"Failed to import finding id {failed['Id']}: ErrorCode: {failed['ErrorCode']}, ErrorMessage: {failed['ErrorMessage']}")
+                  else:
+                      print(f"Successfully imported finding id {finding['Id']}")
+
+              except Exception as e:
+                  print('Exception calling Security Hub: ', e)
+                  traceback.print_exc()
+                  return
+
+          def lambda_handler(event, context):
+              print("Received EventBridge event:")
+              print(json.dumps(event))
+              import_event(event)
+    DependsOn:
+    - DataFunctionRoleDefaultPolicyF2A93448
+    - DataFunctionRole
+    - WriteData
+    Metadata:
+      aws:cdk:path: ResourcesStack/DataFunction/Resource
+      aws:asset:path: asset.ae8b074293c2b283aaecb1cab0308580c1d5068fba43f032539df55f6c03fb9e
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  DDBRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - BatchExecuteStatement
+          - BatchGetItem
+          - BatchWriteItem
+          - DeleteItem
+          - ExecuteStatement
+          - ExecuteTransaction
+          - GetItem
+          - PutItem
+          - Query
+          - Scan
+          - TransactGetItems
+          - TransactWriteItems
+          - UpdateItem
+          resources:
+            ARN:
+            - Fn::GetAtt:
+              - DataTable
+              - Arn
+            type:
+            - AWS::DynamoDB::Table
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.dynamodb
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/DDBRule/Resource
+  DDBRuleAllowEventRuleResourcesStackDataFunction7E871F45ED9E05E7:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - DDBRule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/DDBRule/AllowEventRuleResourcesStackDataFunction7E871F45
+  S3Rule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - HeadObject
+          - GetObject
+          - GetObjectAcl
+          - GetObjectAttributes
+          - GetObjectLegalHold
+          - GetObjectLockConfiguration
+          - GetObjectRetention
+          - GetObjectTagging
+          - GetObjectTorrent
+          - PutObject
+          - PutObjectAcl
+          - PutObjectLegalHold
+          - PutObjectLockConfiguration
+          - PutObjectRetention
+          - PutObjectTagging
+          - SelectObjectContent
+          - DeleteObject
+          - DeleteObjects
+          - DeleteObjectTagging
+          resources:
+            ARN:
+            - Fn::GetAtt:
+              - DataBucket
+              - Arn
+            type:
+            - AWS::S3::Bucket
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.s3
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/S3Rule/Resource
+  S3RuleAllowEventRuleResourcesStackDataFunction7E871F459737E5BC:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - S3Rule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/S3Rule/AllowEventRuleResourcesStackDataFunction7E871F45
+  STSRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - AssumeRole
+          resources:
+            ARN:
+            - Fn::GetAtt:
+              - DataRole
+              - Arn
+            type:
+            - AWS::IAM::Role
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.sts
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/STSRule/Resource
+  STSRuleAllowEventRuleResourcesStackDataFunction7E871F45D5755E7F:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - STSRule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/STSRule/AllowEventRuleResourcesStackDataFunction7E871F45
+  STSAccessDeniedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - AssumeRole
+          errorCode:
+          - AccessDenied
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.sts
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/STSAccessDeniedRule/Resource
+  STSAccessDeniedRuleAllowEventRuleResourcesStackDataFunction7E871F45596438E0:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - STSAccessDeniedRule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/STSAccessDeniedRule/AllowEventRuleResourcesStackDataFunction7E871F45
+  KMSSecretRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - Decrypt
+          - Encrypt
+          - GenerateDataKey
+          requestParameters:
+            encryptionContext:
+              SecretARN:
+              - Ref: DataSecret
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.kms
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/KMSSecretRule/Resource
+  KMSSecretRuleAllowEventRuleResourcesStackDataFunction7E871F4580739098:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - KMSSecretRule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/KMSSecretRule/AllowEventRuleResourcesStackDataFunction7E871F45
+  KMSParamRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          eventName:
+          - Decrypt
+          requestParameters:
+            encryptionContext:
+              PARAMETER_ARN:
+              - Fn::Join:
+                - ''
+                - - 'arn:'
+                  - Ref: AWS::Partition
+                  - ':ssm:'
+                  - Ref: AWS::Region
+                  - ':'
+                  - Ref: AWS::AccountId
+                  - :parameter/data-parameter
+        detail-type:
+        - AWS API Call via CloudTrail
+        source:
+        - aws.kms
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - DataFunction
+          - Arn
+        Id: Target0
+    Metadata:
+      aws:cdk:path: ResourcesStack/KMSParamRule/Resource
+  KMSParamRuleAllowEventRuleResourcesStackDataFunction7E871F454867B390:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - DataFunction
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - KMSParamRule
+        - Arn
+    Metadata:
+      aws:cdk:path: ResourcesStack/KMSParamRule/AllowEventRuleResourcesStackDataFunction7E871F45
+Outputs:
+  SSMParameterName:
+    Value: data-parameter
+  S3ObjectKey:
+    Value: data-object
+  S3BucketName:
+    Value:
+      Ref: DataBucket
+  S3ObjectUri:
+    Value:
+      Fn::Join:
+      - ''
+      - - s3://
+        - Ref: DataBucket
+        - /data-object
+  SecretArn:
+    Value:
+      Ref: DataSecret
+  IAMRoleArn:
+    Value:
+      Fn::GetAtt:
+      - DataRole
+      - Arn
+  DynamoDBTableName:
+    Value:
+      Ref: DataTable
+
