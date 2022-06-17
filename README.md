@@ -24,7 +24,7 @@ To change the properties of the decoy resources created in the template or to ch
 1. Installing and configuring the CDK: follow the instructions in [CDK Getting Started](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html) to get started. Specifically:
 - Ensure that the [pre-requisites](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_prerequisites) are met.
 - [Install the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install).
-- [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and Region where you want to deploy the stack.
+- [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and AWS Region where you want to deploy the stack.
 
 
 2. Clone this repository to your desktop using git.
@@ -32,7 +32,7 @@ To change the properties of the decoy resources created in the template or to ch
     git clone https://github.com/aws-samples/aws-private-decoy-resources.git
     ```
 
-3. If you previously created a CloudFormation stack by following the instructions in the blog or by using the template [rendered_template_cleaned.yaml](rendered_template_cleaned.yaml) in this repository, you must delete the previous stack. The CDK steps below will create a new stack with new resources and will fail if resources with the same name are present in your AWS account from a previous stack.
+3. Delete the stack if you previously created a CloudFormation stack in this AWS Account and Region by following the instructions in the blog or by using the template [rendered_template_cleaned.yaml](rendered_template_cleaned.yaml). The CDK steps below will create a new stack with new resources and will fail if resources with the same name are present in this AWS Account and AWS Region from a previous stack.
 
 
 3. Review and edit the CDK python code in [resources/resources_stack.py](resources/resources_stack.py). Make changes to the CDK code to modify the properties of the resources created.
@@ -46,8 +46,9 @@ To change the properties of the decoy resources created in the template or to ch
 cdk synth
 ```
 
-6. Finally, you can deploy the stack to the default AWS Account and AWS Region you configured in Step 1. This command bundles the Lambda code and uploads it to the S3 bucket created for CDK artifacts.
+6. Finally, you can deploy the stack to the AWS Account and AWS Region you configured in Step 1. This command bundles the Lambda code, uploads it to the S3 bucket created for CDK artifacts, and creates a CloudFormation stack with new resources.
 
 ```
+export AWS_REGION=<your-chosen-region-name>
 cdk deploy
 ```
