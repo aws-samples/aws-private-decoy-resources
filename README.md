@@ -24,9 +24,9 @@ This project uses [CDK in python](https://docs.aws.amazon.com/cdk/v2/guide/work-
 To change the properties of the decoy resources created in the template or to change the Lambda function code:
 
 1. Install and configure the CDK: follow the instructions in [CDK Getting Started](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html) to get started. Specifically:
-  - Ensure that the [pre-requisites](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_prerequisites) are met.
-  - [Install the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install).
-  - [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and AWS Region where you want to deploy the resources.
+    - Ensure that the [pre-requisites](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_prerequisites) are met.
+    - [Install the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install).
+    - [Bootstrap the CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_bootstrap) with the AWS Account and AWS Region where you want to deploy the resources.
 
 1. Ensure that you have [enabled AWS Security Hub](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-enable.html#securityhub-enable-console) in the AWS Region where you want to deploy the resources.
 
@@ -45,14 +45,12 @@ To change the properties of the decoy resources created in the template or to ch
 4. Review and edit the Lambda function code in [lambda/index.py](lambda/index.py). This function is triggered by EventBridge rules and maps incoming CloudTrail API events to custom findings in Security Hub with [fields defined in ASFF](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-findings-format.html).
 
 5. Synthesize the CloudFormation template for the updated code using:
-
-  ```
-  cdk synth
-  ```
+    ```
+    cdk synth
+    ```
 
 6. Finally, you can deploy the stack to the AWS Account and AWS Region you configured in Step 1. This command bundles the Lambda code, uploads it to the S3 bucket created for CDK artifacts, and creates a CloudFormation stack with new resources.
-
-  ```
-  export AWS_REGION=<your-chosen-region-name>
-  cdk deploy
-  ```
+    ```
+    export AWS_REGION=<your-chosen-region-name>
+    cdk deploy
+    ```
