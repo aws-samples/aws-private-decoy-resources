@@ -1,6 +1,6 @@
 # How to detect suspicious activity in your AWS account by using private decoy resources
 
-This project provides the templates and source code for the blog post [How to detect suspicious activity in your AWS account by using private decoy resources](https://aws.amazon.com/blogs/security/)
+This project provides the templates and source code for the blog post [How to detect suspicious activity in your AWS account by using private decoy resources](https://aws.amazon.com/blogs/security/how-to-detect-suspicious-activity-in-your-aws-account-by-using-private-decoy-resources/)
 
 Follow the instructions in the blog post above to deploy the code and templates without changes to the default AWS Region in the blog post.
 
