@@ -297,8 +297,8 @@ Resources:
             - Arn
           - Ref: AWS::NoValue
         - Action:
-          - s3:GetParameter
-          - s3:GetParameters
+          - ssm:GetParameter
+          - ssm:GetParameters
           Effect: Allow
           Resource:
             Fn::Join:
@@ -1144,4 +1144,3 @@ Outputs:
   DynamoDBTableName:
     Value:
       Ref: DataTable
-

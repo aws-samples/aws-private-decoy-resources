@@ -223,7 +223,7 @@ def on_delete(event, context):
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
-                actions=["s3:GetParameter", "s3:GetParameters"],
+                actions=["ssm:GetParameter", "ssm:GetParameters"],
                 resources=[param_arn]
             )
         )
