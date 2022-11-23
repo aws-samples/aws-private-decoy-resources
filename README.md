@@ -18,7 +18,7 @@ To deploy the template and code without changes to a different AWS Region than t
 
 2. In the AWS Region of your choice, create a new CloudFormation stack using the packaged template [rendered_template_cleaned.yaml](rendered_template_cleaned.yaml)
 
-## To modifying the CDK and Lambda function code
+## To modify resource properties or the Lambda function code
 This project uses [CDK in python](https://docs.aws.amazon.com/cdk/v2/guide/work-with-cdk-python.html) to generate the templates used to create resources.
 
 To change the properties of the decoy resources created in the template or to change the Lambda function code:
@@ -42,7 +42,7 @@ To change the properties of the decoy resources created in the template or to ch
 3. Review and edit the CDK python code in [resources/resources_stack.py](resources/resources_stack.py). Make changes to the CDK code to modify the properties of the resources created.
 
 
-4. Review and edit the Lambda function code in [lambda/index.py](lambda/index.py). This function is triggered by EventBridge rules and maps incoming CloudTrail API events to custom findings in Security Hub with [fields defined in ASFF](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-findings-format.html).
+4. Review and edit the Lambda function code in [lambda/index.py](lambda/index.py). This function is triggered by EventBridge rules and maps incoming CloudTrail API events to custom findings in Security Hub with [fields defined in the AWS Security Finding Format (ASFF)](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-findings-format.html).
 
 5. Synthesize the CloudFormation template for the updated code using:
     ```
