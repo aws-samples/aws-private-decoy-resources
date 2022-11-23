@@ -263,7 +263,7 @@ def map_finding(event):
     finding = {
         "SchemaVersion": "2018-10-08",
         "Id": detail['eventID'],
-        "ProductArn": f"arn:aws:securityhub:{my_region}:{my_account}:product/{my_account}/default",
+        "ProductArn": f"arn:{my_partition}:securityhub:{my_region}:{my_account}:product/{my_account}/default",
         "GeneratorId": detail['eventSource'],
         "AwsAccountId": event['account'],
         "CreatedAt": detail['eventTime'],
